@@ -3,7 +3,10 @@ import numpy as np
 import plotly.graph_objects as go
 from numba import njit
 
-def load_sidebar_options():
+from utils import get_sector_steering
+
+
+def set_sidebar_options():
     # Query beam information
     with st.sidebar.container(border=True):
         st.subheader("Interactive Beam Query")
@@ -30,6 +33,14 @@ def load_sidebar_options():
                                              step=1.0)
         st.session_state["num_sectors"] = st.selectbox("Number of TX Sectors", options=[1, 2, 3, 4, 5, 8], index=0)
         st.session_state["shading_type"] = st.selectbox("Array Shading", options=["Uniform", "Hann", "Hamming"], index=0)
+
+    # Determine the beamwidth factor based on shading
+    if st.session_state["shading_type"]  == "Uniform":
+        st.session_state["bw_factor"] = 0.886
+    elif st.session_state["shading_type"]  == "Hann":
+        st.session_state["bw_factor"] = 1.20
+    elif st.session_state["shading_type"]  == "Hamming":
+        st.session_state["bw_factor"] = 1.30
 
     with st.sidebar.expander("Active Sonar Equation (Power & Noise)", expanded=True):
         st.session_state["source_level"] = st.number_input("Source Level (SL) [dB]", min_value=100.0, max_value=300.0, value=220.0,
@@ -77,3 +88,48 @@ def load_sidebar_options():
                 "Note: The 3D TX lobe display does not support simultaneous multi-sector visualization. It currently renders the active queried sector only.")
         st.session_state["show_rx_lobe"] = st.checkbox("Show RX Lobe (Red)", value=False)
         st.session_state["show_combined_lobe"] = st.checkbox("Show Combined Product Lobe", value=True)
+
+
+def calculate_sidebar_orientations():
+    # --- MATH & GEOMETRY ---
+    # True Mechanical Orientations (IMU Dynamic Motion + Static Mounting Biases)
+    st.session_state["true_tx_roll"] = st.session_state["imu_roll"] + st.session_state["tx_roll_bias"]
+    st.session_state["true_tx_pitch"] = st.session_state["imu_pitch"] + st.session_state["tx_pitch_bias"]
+    st.session_state["true_tx_yaw"] = st.session_state["imu_yaw"] + st.session_state["tx_yaw_bias"]
+
+    st.session_state["true_rx_roll"] = st.session_state["imu_roll"] + st.session_state["rx_roll_bias"]
+    st.session_state["true_rx_pitch"] = st.session_state["imu_pitch"] + st.session_state["rx_pitch_bias"]
+    st.session_state["true_rx_yaw"] = st.session_state["imu_yaw"] + st.session_state["rx_yaw_bias"]
+
+
+def calculate_sidebar_stabilization():
+    # Apply Active Roll Stabilization (Relies only on IMU values, capped at ±10°)
+    st.session_state["array_relative_rx_angle"] = st.session_state["queried_angle"]
+    if st.session_state["auto_roll"]:
+        applied_rx_steer = np.clip(st.session_state["imu_roll"], -10.0, 10.0)
+        st.session_state["array_relative_rx_angle"] -= applied_rx_steer
+
+    # Dynamic Sector Steering (Pitch & Yaw Stabilization)
+    swath_edges = np.linspace(-75.0, 75.0, st.session_state["num_sectors"] + 1)
+    st.session_state["sector_limits"] = [(swath_edges[i], swath_edges[i + 1]) for i in range(st.session_state["num_sectors"])]
+
+
+def calculate_steering():
+    # Find which sector the red queried dot belongs to, so it uses the correct physical steering
+    queried_sector_center = 0.0
+    for s_start, s_end in st.session_state["sector_limits"]:
+        if s_start <= st.session_state["queried_angle"] <= s_end:
+            queried_sector_center = (s_start + s_end) / 2.0
+            break
+
+    # Convert variables for the Math Engine
+    tx_steer_rad = get_sector_steering(queried_sector_center)
+    st.session_state["tx_steer_angle"] = np.degrees(tx_steer_rad)  # Preserve for fan geometry
+    st.session_state["theta_rad"] = np.radians(st.session_state["array_relative_rx_angle"])
+
+
+
+def calculate_sidebar():
+    calculate_sidebar_orientations()
+    calculate_sidebar_stabilization()
+    calculate_steering()

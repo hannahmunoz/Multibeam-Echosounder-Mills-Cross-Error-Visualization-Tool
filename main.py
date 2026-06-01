@@ -3,10 +3,8 @@ import numpy as np
 import plotly.graph_objects as go
 from numba import njit
 
-from sidebar import load_sidebar_options
-from utils import project_to_flat_bottom, make_tx_ray, calculate_directivity, make_rx_ray, get_rotation_matrix, \
-    generate_array_weights, solve_mills_cross_intersection, calculate_absorption_fg, get_sector_steering, \
-    generate_native_lobe
+from sidebar import set_sidebar_options, calculate_sidebar
+
 
 st.set_page_config(layout="wide", page_title="Mills Cross Error Visualization")
 
@@ -17,4 +15,5 @@ st.markdown(
 # --- SIDEBAR INTERFACE ---
 st.sidebar.header("Parameters")
 
-load_sidebar_options()
+set_sidebar_options()
+calculate_sidebar()

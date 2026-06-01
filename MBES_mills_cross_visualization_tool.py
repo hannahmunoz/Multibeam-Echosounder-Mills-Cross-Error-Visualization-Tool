@@ -8,47 +8,6 @@ from utils import project_to_flat_bottom, make_tx_ray, calculate_directivity, ma
     generate_native_lobe
 
 
-# --- MATH & GEOMETRY ---
-# True Mechanical Orientations (IMU Dynamic Motion + Static Mounting Biases)
-true_tx_roll = imu_roll + tx_roll_bias
-true_tx_pitch = imu_pitch + tx_pitch_bias
-true_tx_yaw = imu_yaw + tx_yaw_bias
-
-true_rx_roll = imu_roll + rx_roll_bias
-true_rx_pitch = imu_pitch + rx_pitch_bias
-true_rx_yaw = imu_yaw + rx_yaw_bias
-
-# Apply Active Roll Stabilization (Relies only on IMU values, capped at ±10°)
-if auto_roll:
-    applied_rx_steer = np.clip(imu_roll, -10.0, 10.0)
-    array_relative_rx_angle = queried_angle - applied_rx_steer
-else:
-    array_relative_rx_angle = queried_angle
-
-# Dynamic Sector Steering (Pitch & Yaw Stabilization)
-swath_edges = np.linspace(-75.0, 75.0, num_sectors + 1)
-sector_limits = [(swath_edges[i], swath_edges[i + 1]) for i in range(num_sectors)]
-
-# Find which sector the red queried dot belongs to, so it uses the correct physical steering
-queried_sector_center = 0.0
-for s_start, s_end in sector_limits:
-    if s_start <= queried_angle <= s_end:
-        queried_sector_center = (s_start + s_end) / 2.0
-        break
-
-# Convert variables for the Math Engine
-tx_steer_rad = get_sector_steering(queried_sector_center)
-tx_steer_angle = np.degrees(tx_steer_rad)  # Preserve for fan geometry
-theta_rad = np.radians(array_relative_rx_angle)
-
-# Determine the beamwidth factor based on shading
-if shading_type == "Uniform":
-    bw_factor = 0.886
-elif shading_type == "Hann":
-    bw_factor = 1.20
-elif shading_type == "Hamming":
-    bw_factor = 1.30
-
 # Calculate physical arrays based on a nominal 1500 m/s sound speed
 lambda_nom = 1500.0 / frequency
 L_tx = bw_factor * lambda_nom / np.radians(tx_beamwidth)
