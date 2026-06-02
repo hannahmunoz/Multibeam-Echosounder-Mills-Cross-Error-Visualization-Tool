@@ -9,10 +9,10 @@ def calculate_directivity(v_geo, R_mech, steer_rad, is_tx):
 
     if is_tx:
         sin_theta = v_local[0]
-        weights = tx_weights
+        weights = st.session_state["tx_weights"]
     else:
         sin_theta = v_local[1]
-        weights = rx_weights
+        weights = st.session_state["rx_weights"]
 
     # Call the pre-compiled Numba function using the effective d_lambda
     return _numba_array_factor(sin_theta, steer_rad, d_lambda_eff, weights)

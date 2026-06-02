@@ -3,7 +3,7 @@ import numpy as np
 import plotly.graph_objects as go
 from numba import njit
 
-from utils import get_sector_steering
+from utils import get_sector_steering, get_rotation_matrix, generate_array_weights, solve_mills_cross_intersection
 
 
 def set_sidebar_options():
@@ -123,13 +123,74 @@ def calculate_steering():
             break
 
     # Convert variables for the Math Engine
-    tx_steer_rad = get_sector_steering(queried_sector_center)
-    st.session_state["tx_steer_angle"] = np.degrees(tx_steer_rad)  # Preserve for fan geometry
+    st.session_state["tx_steer_rad"] = get_sector_steering(queried_sector_center)
+    st.session_state["tx_steer_angle"] = np.degrees(st.session_state["tx_steer_rad"])  # Preserve for fan geometry
     st.session_state["theta_rad"] = np.radians(st.session_state["array_relative_rx_angle"])
 
+def calculate_secant_effect():
+    # Calculate physical arrays based on a nominal 1500 m/s sound speed
+    lambda_nom = 1500.0 / st.session_state["frequency"]
+    st.session_state["lamda_nom"] = lambda_nom
+    bw_factor = st.session_state["bw_factor"]
+    st.session_state["L_tx"] = bw_factor * lambda_nom / np.radians(st.session_state["tx_beamwidth"])
+    st.session_state["L_rx"] = bw_factor * lambda_nom / np.radians(st.session_state["rx_beamwidth"])
+
+    # Calculate effective beamwidths based on the environmental sound speed slider
+    wavelength = st.session_state["c_sound"] / st.session_state["frequency"]
+    st.session_state["wavelength"] = wavelength
+    tx_bw_rad = bw_factor * wavelength / st.session_state["L_tx"]
+    rx_bw_rad = bw_factor * wavelength / st.session_state["L_rx"]
+
+    # Apply the Secant Effect for the queried beam
+    st.session_state["dynamic_tx_bw_rad"] = tx_bw_rad / np.cos(st.session_state["tx_steer_rad"])
+    st.session_state["dynamic_rx_bw_rad"] = rx_bw_rad / np.cos(st.session_state["theta_rad"])
+
+
+def calculate_rotation_matrix():
+    st.session_state["R_tx_mech"] = get_rotation_matrix(st.session_state["true_tx_roll"], st.session_state["true_tx_pitch"], st.session_state["true_tx_yaw"])
+    st.session_state["R_rx_mech"] = get_rotation_matrix(st.session_state["true_rx_roll"], st.session_state["true_rx_pitch"], st.session_state["true_rx_yaw"])
+
+    # Ideal Matrices (Includes IMU motion and assumes no mounting biases)
+    st.session_state["R_tx_ideal"] = get_rotation_matrix(st.session_state["imu_roll"], st.session_state["imu_pitch"], st.session_state["imu_yaw"])
+    st.session_state["R_rx_ideal"] = get_rotation_matrix(st.session_state["imu_roll"], st.session_state["imu_pitch"], st.session_state["imu_yaw"])
+
+
+def calculate_acoustic_directivity():
+    # --- Acoustic Directivity and Hardware Math ---
+    # Physical array elements are locked to the nominal half-wavelength (1500 m/s)
+    d_spacing_nom =  st.session_state["lamda_nom"] / 2.0
+    d_lambda_eff = d_spacing_nom / st.session_state["wavelength"]   # Environmental spacing-to-wavelength ratio
+
+    # Theoretical number of elements built into the hardware
+    true_N_tx = int(np.ceil(st.session_state["L_tx"] / d_spacing_nom))
+    true_N_rx = int(np.ceil(st.session_state["L_rx"] / d_spacing_nom))
+
+    # Cap computational elements for Numba to maintain some semblance of UI speed
+    comp_N_tx = max(1, min(true_N_tx, 300))
+    comp_N_rx = max(1, min(true_N_rx, 300))
+
+    # Pre-calculate distinct weights for TX and RX arrays
+    st.session_state["tx_weights"] = generate_array_weights(comp_N_tx, shading=st.session_state["shading_type"])
+    st.session_state["rx_weights"] = generate_array_weights(comp_N_rx, shading=st.session_state["shading_type"])
+
+    # Calculate exact 3D nodes
+    st.session_state["pt_calculated"] = solve_mills_cross_intersection( st.session_state["R_tx_ideal"],
+                                                                        st.session_state["R_rx_ideal"],
+                                                                        st.session_state["tx_steer_rad"],
+                                                                        st.session_state["theta_rad"],
+                                                                        st.session_state["depth"])
+    st.session_state["pt_physical"] = solve_mills_cross_intersection( st.session_state["R_tx_mech"],
+                                                                      st.session_state["R_rx_mech"],
+                                                                      st.session_state["tx_steer_rad"],
+                                                                        st.session_state["theta_rad"],
+                                                                        st.session_state["depth"])
 
 
 def calculate_sidebar():
     calculate_sidebar_orientations()
     calculate_sidebar_stabilization()
     calculate_steering()
+    calculate_secant_effect()
+    calculate_rotation_matrix()
+    calculate_acoustic_directivity()
+    print(st.session_state)

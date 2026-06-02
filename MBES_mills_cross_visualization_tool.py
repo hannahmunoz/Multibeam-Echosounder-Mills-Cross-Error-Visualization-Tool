@@ -8,51 +8,6 @@ from utils import project_to_flat_bottom, make_tx_ray, calculate_directivity, ma
     generate_native_lobe
 
 
-# Calculate physical arrays based on a nominal 1500 m/s sound speed
-lambda_nom = 1500.0 / frequency
-L_tx = bw_factor * lambda_nom / np.radians(tx_beamwidth)
-L_rx = bw_factor * lambda_nom / np.radians(rx_beamwidth)
-
-# Calculate effective beamwidths based on the environmental sound speed slider
-wavelength = c_sound / frequency
-tx_bw_rad = bw_factor * wavelength / L_tx
-rx_bw_rad = bw_factor * wavelength / L_rx
-
-# Apply the Secant Effect for the queried beam
-dynamic_tx_bw_rad = tx_bw_rad / np.cos(tx_steer_rad)
-dynamic_rx_bw_rad = rx_bw_rad / np.cos(theta_rad)
-
-R_tx_mech = get_rotation_matrix(true_tx_roll, true_tx_pitch, true_tx_yaw)
-R_rx_mech = get_rotation_matrix(true_rx_roll, true_rx_pitch, true_rx_yaw)
-
-# Ideal Matrices (Includes IMU motion and assumes no mounting biases)
-R_tx_ideal = get_rotation_matrix(imu_roll, imu_pitch, imu_yaw)
-R_rx_ideal = get_rotation_matrix(imu_roll, imu_pitch, imu_yaw)
-
-# --- Acoustic Directivity and Hardware Math ---
-# Physical array elements are locked to the nominal half-wavelength (1500 m/s)
-d_spacing_nom = lambda_nom / 2.0
-d_lambda_eff = d_spacing_nom / wavelength  # Environmental spacing-to-wavelength ratio
-
-# Theoretical number of elements built into the hardware
-true_N_tx = int(np.ceil(L_tx / d_spacing_nom))
-true_N_rx = int(np.ceil(L_rx / d_spacing_nom))
-
-# Cap computational elements for Numba to maintain some semblance of UI speed
-comp_N_tx = max(1, min(true_N_tx, 300))
-comp_N_rx = max(1, min(true_N_rx, 300))
-
-# Pre-calculate distinct weights for TX and RX arrays
-tx_weights = generate_array_weights(comp_N_tx, shading=shading_type)
-rx_weights = generate_array_weights(comp_N_rx, shading=shading_type)
-
-
-
-
-# Calculate exact 3D nodes
-pt_calculated = solve_mills_cross_intersection(R_tx_ideal, R_rx_ideal, tx_steer_rad, theta_rad, depth)
-pt_physical = solve_mills_cross_intersection(R_tx_mech, R_rx_mech, tx_steer_rad, theta_rad, depth)
-
 # TX Fan Geometry Construction (Dynamic Multi-Sector Layout)
 tx_fwd_psi = tx_steer_rad + (dynamic_tx_bw_rad / 2)
 tx_aft_psi = tx_steer_rad - (dynamic_tx_bw_rad / 2)
