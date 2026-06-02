@@ -113,8 +113,8 @@ def calculate_acoustic_directivity():
 
 def calculate_tx_fan_geometry():
     # TX Fan Geometry Construction (Dynamic Multi-Sector Layout)
-    tx_fwd_psi = st.session_state["tx_steer_rad"] + (st.session_state["dynamic_tx_bw_rad"] / 2)
-    tx_aft_psi = st.session_state["tx_steer_rad"] - (st.session_state["dynamic_tx_bw_rad"] / 2)
+    st.session_state["tx_fwd_psi"] = st.session_state["tx_steer_rad"] + (st.session_state["dynamic_tx_bw_rad"] / 2)
+    st.session_state["tx_aft_psi"] = st.session_state["tx_steer_rad"] - (st.session_state["dynamic_tx_bw_rad"] / 2)
 
     physical_tx_sectors = []
     calculated_tx_sectors = []
@@ -157,20 +157,20 @@ def calculate_rx_footprint_geometry():
     rx_acceptance_rad = np.radians(st.session_state["rx_fore_aft_bw"] / 2.0)
 
     half_rx_bw = st.session_state["dynamic_rx_bw_rad"] / 2
-    theta_min = st.session_state["theta_rad"] - half_rx_bw
-    theta_max = st.session_state["theta_rad"] + half_rx_bw
+    st.session_state["theta_min"] = st.session_state["theta_rad"] - half_rx_bw
+    st.session_state["theta_max"] = st.session_state["theta_rad"] + half_rx_bw
 
     rx_red_perimeter = []
     R_rx_mech = st.session_state["R_rx_mech"]
     rx_red_perimeter.extend(
         [project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(t_s, rx_acceptance_rad)).flatten()) for t_s in
-         np.linspace(theta_min, theta_max, 15)])
-    rx_red_perimeter.extend([project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(theta_max, phi)).flatten()) for phi in
+         np.linspace(st.session_state["theta_min"], st.session_state["theta_max"] , 15)])
+    rx_red_perimeter.extend([project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(st.session_state["theta_max"] , phi)).flatten()) for phi in
                              np.linspace(rx_acceptance_rad, -rx_acceptance_rad, 15)])
     rx_red_perimeter.extend(
         [project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(t_s, -rx_acceptance_rad)).flatten()) for t_s in
-         np.linspace(theta_max, theta_min, 15)])
-    rx_red_perimeter.extend([project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(theta_min, phi)).flatten()) for phi in
+         np.linspace(st.session_state["theta_max"] , st.session_state["theta_min"], 15)])
+    rx_red_perimeter.extend([project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(st.session_state["theta_min"] , phi)).flatten()) for phi in
                              np.linspace(-rx_acceptance_rad, rx_acceptance_rad, 15)])
 
     rx_full_perimeter = []
@@ -192,6 +192,78 @@ def calculate_rx_footprint_geometry():
     rx_full_z = [p[2] for p in rx_full_perimeter]
 
 
+def calculate_sounding_patch():
+    # --- Calculate Sounding Patch ---
+    R_tx_mech = st.session_state["R_tx_mech"]
+    R_rx_mech = st.session_state["R_rx_mech"]
+    theta_rad = st.session_state["theta_rad"]
+    depth = st.session_state["depth"]
+
+    st.session_state["tx_edge_fwd"] = solve_mills_cross_intersection(R_tx_mech, R_rx_mech, st.session_state["tx_fwd_psi"], theta_rad, depth)
+    st.session_state["tx_edge_aft"] = solve_mills_cross_intersection(R_tx_mech, R_rx_mech,  st.session_state["tx_aft_psi"], theta_rad, depth)
+
+    rx_edge_max = solve_mills_cross_intersection(R_tx_mech, R_rx_mech, st.session_state["tx_steer_rad"],  st.session_state["theta_max"], depth)
+    rx_edge_min = solve_mills_cross_intersection(R_tx_mech, R_rx_mech, st.session_state["tx_steer_rad"],  st.session_state["theta_min"], depth)
+
+    st.session_state["has_overlap"] = all(np.linalg.norm(p) > 1e-3 for p in [st.session_state["tx_edge_fwd"], st.session_state["tx_edge_aft"], rx_edge_max, rx_edge_min])
+
+    patch_points = []
+    if st.session_state["has_overlap"]:
+        vec_tx = (st.session_state["tx_edge_fwd"] - st.session_state["tx_edge_aft"]) / 2.0
+        vec_rx = (rx_edge_max - rx_edge_min) / 2.0
+
+        angles = np.linspace(0, 2 * np.pi, 64)
+        for alpha in angles:
+            pt =  st.session_state["pt_physical"] + vec_tx * np.cos(alpha) + vec_rx * np.sin(alpha)
+            patch_points.append(pt)
+
+        a = np.linalg.norm(vec_tx)
+        b = np.linalg.norm(vec_rx)
+        st.session_state["patch_area"] = np.pi * a * b
+    else:
+        st.session_state["patch_area"] = 0.0
+
+
+def calculate_metrics_and_values():
+    # --- METRICS & VALUES ---
+    R_tx_mech = st.session_state["R_tx_mech"]
+    R_rx_mech = st.session_state["R_rx_mech"]
+    tx_edge_fwd = st.session_state["tx_edge_fwd"]
+    tx_edge_aft = st.session_state["tx_edge_aft"]
+
+    st.session_state["delta_x"] = st.session_state["pt_physical"][0] - st.session_state["pt_calculated"][0]
+    st.session_state["delta_y"] = st.session_state["pt_physical"][1] - st.session_state["pt_calculated"][1]
+
+
+    if np.linalg.norm(tx_edge_fwd) > 0 and np.linalg.norm(tx_edge_aft) > 0:
+        st.session_state["tx_x_width"] = np.linalg.norm(tx_edge_fwd - tx_edge_aft)
+        tx_status = "Yes" if st.session_state["has_overlap"] else "No"
+    else:
+        st.session_state["tx_x_width"] = 0.0
+        tx_status = "No" #TODO: being overwritten below
+
+    # Hardware boundary checks
+    pt_physical = st.session_state["pt_physical"]
+    if np.linalg.norm(pt_physical) > 0:
+        v_pt_phys = pt_physical / np.linalg.norm(pt_physical)
+
+        # RX Check
+        v_local_rx = np.dot(R_rx_mech.T, v_pt_phys)
+        actual_rx_fore_aft_angle = np.degrees(np.arcsin(np.clip(v_local_rx[0], -1.0, 1.0)))
+        rx_status = "Yes" if abs(actual_rx_fore_aft_angle) <= (st.session_state["rx_fore_aft_bw"] / 2.0) else ":red[No]"
+
+        # TX Check
+        v_local_tx = np.dot(R_tx_mech.T, v_pt_phys)
+        actual_tx_across_angle = np.degrees(np.arcsin(np.clip(v_local_tx[1], -1.0, 1.0)))
+        tx_status = "Yes" if abs(actual_tx_across_angle) <= (st.session_state["tx_across_fan_bw"] / 2.0) else ":red[No]"
+    else:
+        rx_status = "Invalid"
+        tx_status = "Invalid"
+
+    st.session_state["tx_status"] = tx_status
+    st.session_state["rx_status"] = rx_status
+
+
 def calculate_sidebar():
     calculate_sidebar_orientations()
     calculate_sidebar_stabilization()
@@ -201,4 +273,7 @@ def calculate_sidebar():
     calculate_acoustic_directivity()
     calculate_tx_fan_geometry()
     calculate_rx_footprint_geometry()
+    calculate_sounding_patch()
+    calculate_metrics_and_values()
+
     print(st.session_state)
