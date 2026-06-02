@@ -8,73 +8,8 @@ from utils import project_to_flat_bottom, make_tx_ray, calculate_directivity, ma
     generate_native_lobe
 
 
-# TX Fan Geometry Construction (Dynamic Multi-Sector Layout)
-tx_fwd_psi = tx_steer_rad + (dynamic_tx_bw_rad / 2)
-tx_aft_psi = tx_steer_rad - (dynamic_tx_bw_rad / 2)
 
-physical_tx_sectors = []
-calculated_tx_sectors = []
 
-for start_angle, end_angle in sector_limits:
-    sector_center = (start_angle + end_angle) / 2.0
-    sec_steer_rad = get_sector_steering(sector_center)
-
-    # Secant beamwidth expansion for this specific sector
-    sec_tx_bw_rad = tx_bw_rad / np.cos(sec_steer_rad)
-    sec_fwd_psi = sec_steer_rad + (sec_tx_bw_rad / 2)
-    sec_aft_psi = sec_steer_rad - (sec_tx_bw_rad / 2)
-
-    # Physical Fan Sectors
-    phys_fwd = [project_to_flat_bottom(np.dot(R_tx_mech, make_tx_ray(t_s, sec_fwd_psi)).flatten()) for t_s in
-                np.linspace(np.radians(start_angle), np.radians(end_angle), 25)]
-    phys_aft = [project_to_flat_bottom(np.dot(R_tx_mech, make_tx_ray(t_s, sec_aft_psi)).flatten()) for t_s in
-                np.linspace(np.radians(start_angle), np.radians(end_angle), 25)]
-    physical_tx_sectors.append(phys_fwd + list(reversed(phys_aft)))
-
-    # Ideal Fan Sectors
-    calc_fwd = [project_to_flat_bottom(np.dot(R_tx_ideal, make_tx_ray(t_s, sec_fwd_psi)).flatten()) for t_s in
-                np.linspace(np.radians(start_angle), np.radians(end_angle), 25)]
-    calc_aft = [project_to_flat_bottom(np.dot(R_tx_ideal, make_tx_ray(t_s, sec_aft_psi)).flatten()) for t_s in
-                np.linspace(np.radians(start_angle), np.radians(end_angle), 25)]
-    calculated_tx_sectors.append(calc_fwd + list(reversed(calc_aft)))
-
-# RX Footprint Geometry Construction
-required_acceptance_deg = abs(tx_steer_angle) + (tx_beamwidth / 2.0) + 2.0
-rx_acceptance_rad = np.radians(rx_fore_aft_bw / 2.0)
-
-half_rx_bw = dynamic_rx_bw_rad / 2
-theta_min = theta_rad - half_rx_bw
-theta_max = theta_rad + half_rx_bw
-
-rx_red_perimeter = []
-rx_red_perimeter.extend(
-    [project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(t_s, rx_acceptance_rad)).flatten()) for t_s in
-     np.linspace(theta_min, theta_max, 15)])
-rx_red_perimeter.extend([project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(theta_max, phi)).flatten()) for phi in
-                         np.linspace(rx_acceptance_rad, -rx_acceptance_rad, 15)])
-rx_red_perimeter.extend(
-    [project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(t_s, -rx_acceptance_rad)).flatten()) for t_s in
-     np.linspace(theta_max, theta_min, 15)])
-rx_red_perimeter.extend([project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(theta_min, phi)).flatten()) for phi in
-                         np.linspace(-rx_acceptance_rad, rx_acceptance_rad, 15)])
-
-rx_full_perimeter = []
-rx_full_perimeter.extend(
-    [project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(t_s, rx_acceptance_rad)).flatten()) for t_s in
-     np.linspace(-np.radians(77), np.radians(77), 50)])
-rx_full_perimeter.extend(
-    [project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(np.radians(77), phi)).flatten()) for phi in
-     np.linspace(rx_acceptance_rad, -rx_acceptance_rad, 15)])
-rx_full_perimeter.extend(
-    [project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(t_s, -rx_acceptance_rad)).flatten()) for t_s in
-     np.linspace(np.radians(77), -np.radians(77), 50)])
-rx_full_perimeter.extend(
-    [project_to_flat_bottom(np.dot(R_rx_mech, make_rx_ray(-np.radians(77), phi)).flatten()) for phi in
-     np.linspace(-rx_acceptance_rad, rx_acceptance_rad, 15)])
-
-rx_full_x = [p[0] for p in rx_full_perimeter]
-rx_full_y = [p[1] for p in rx_full_perimeter]
-rx_full_z = [p[2] for p in rx_full_perimeter]
 
 # --- Calculate Sounding Patch ---
 tx_edge_fwd = solve_mills_cross_intersection(R_tx_mech, R_rx_mech, tx_fwd_psi, theta_rad, depth)
@@ -239,14 +174,14 @@ actual_sounding_dots = []
 
 if show_ideal_soundings or show_actual_soundings:
     per_side_target = target_swath_width / 2.0
-    max_y = depth * np.tan(np.radians(per_side_target))
+    max_y = st.session_state["depth"] * np.tan(np.radians(per_side_target))
 
     # Create 100 target coordinates
     beam_y_coords = np.linspace(-max_y, max_y, 100)
 
     for y_coord in beam_y_coords:
         # Back-calculate the nominal angle to determine which sector panel this target coordinate falls into
-        b_angle_nominal = np.degrees(np.arctan(y_coord / depth))
+        b_angle_nominal = np.degrees(np.arctan(y_coord / st.session_state["depth"]))
 
         sector_center = 0.0
         for s_start, s_end in sector_limits:
@@ -259,7 +194,7 @@ if show_ideal_soundings or show_actual_soundings:
 
         # Back projection and swath truncation
         # Define 3D target coordinate on the flat seafloor
-        v_target_global = np.array([depth * np.tan(steer_rad), y_coord, depth])
+        v_target_global = np.array([st.session_state["depth"] * np.tan(steer_rad), y_coord, st.session_state["depth"]])
 
         # Push global target backwards into the array's local frame
         if auto_roll:
@@ -278,13 +213,13 @@ if show_ideal_soundings or show_actual_soundings:
 
         # Ideal Soundings
         if show_ideal_soundings:
-            pt_id = solve_mills_cross_intersection(R_tx_ideal, R_rx_ideal, steer_rad, b_rad, depth)
+            pt_id = solve_mills_cross_intersection(R_tx_ideal, R_rx_ideal, steer_rad, b_rad, st.session_state["depth"])
             if np.linalg.norm(pt_id) > 0:
                 ideal_sounding_dots.append(pt_id)
 
         # Actual Soundings
         if show_actual_soundings:
-            pt_ac = solve_mills_cross_intersection(R_tx_mech, R_rx_mech, steer_rad, b_rad, depth)
+            pt_ac = solve_mills_cross_intersection(R_tx_mech, R_rx_mech, steer_rad, b_rad, st.session_state["depth"])
             if np.linalg.norm(pt_ac) > 0:
                 actual_sounding_dots.append(pt_ac)
 
@@ -295,8 +230,8 @@ fig = go.Figure()
 if show_heatmap and np.linalg.norm(pt_physical) > 0:
     span_factor = 8.0  # Number of beamwidths to display
 
-    nominal_range_x = depth * np.tan(np.radians(tx_beamwidth * span_factor))
-    nominal_range_y = depth * np.tan(np.radians(rx_beamwidth * span_factor)) / (np.cos(theta_rad) ** 2)
+    nominal_range_x = st.session_state["depth"] * np.tan(np.radians(tx_beamwidth * span_factor))
+    nominal_range_y = st.session_state["depth"] * np.tan(np.radians(rx_beamwidth * span_factor)) / (np.cos(theta_rad) ** 2)
 
     # Identify larger small axis beamwidth and set for square map rendering
     grid_range = max(10.0, nominal_range_x, nominal_range_y)
@@ -308,14 +243,14 @@ if show_heatmap and np.linalg.norm(pt_physical) > 0:
     x_g = np.linspace(pt_physical[0] - grid_range_x, pt_physical[0] + grid_range_x, 100)
     y_g = np.linspace(pt_physical[1] - grid_range_y, pt_physical[1] + grid_range_y, 100)
     X_grid, Y_grid = np.meshgrid(x_g, y_g)
-    Z_grid = np.full_like(X_grid, depth)
+    Z_grid = np.full_like(X_grid, st.session_state["depth"])
     Intensity_dB = np.zeros_like(X_grid)
 
     # Calculate alpha once for the whole grid
-    alpha_db_m = calculate_absorption_fg(frequency, water_temp, salinity, depth, ph_level, c_sound)
+    alpha_db_m = calculate_absorption_fg(frequency, water_temp, salinity, st.session_state["depth"], ph_level, c_sound)
 
     # Dynamically anchor the color scale to the nadir values so it never blanks out
-    nadir_tl = 40 * np.log10(depth) + 2 * alpha_db_m * depth
+    nadir_tl = 40 * np.log10(st.session_state["depth"]) + 2 * alpha_db_m * st.session_state["depth"]
 
     if apply_tvg:
         cmax_val = bs_nadir
@@ -524,7 +459,7 @@ if has_overlap:
 
 # --- Visual Representation of Arrays and Bow Vector ---
 # Arbitrary value to maintain visualization at any scale
-array_visual_length = depth * 0.15
+array_visual_length = st.session_state["depth"] * 0.15
 
 # Physical TX Array (Aligned along X-axis locally, rotated by R_tx_mech)
 tx_local_start = np.array([-array_visual_length / 2.0, 0.0, 0.0])
@@ -557,7 +492,7 @@ fig.add_trace(go.Scatter3d(
 ))
 
 # Vessel Bow Arrow (Follows where bow would point under motion)
-fwd_visual_length = depth * 0.18
+fwd_visual_length = st.session_state["depth"] * 0.18
 fwd_local = np.array([fwd_visual_length, 0.0, 0.0])
 fwd_global = np.dot(R_tx_ideal, fwd_local)
 
@@ -576,7 +511,7 @@ fig.add_trace(go.Cone(
     x=[fwd_global[0]], y=[fwd_global[1]], z=[fwd_global[2]],
     u=[fwd_global[0]], v=[fwd_global[1]], w=[fwd_global[2]],
     sizemode="absolute",
-    sizeref=depth * 0.03,
+    sizeref=st.session_state["depth"] * 0.03,
     colorscale=[[0, 'black'], [1, 'black']],
     showscale=False,
     name='Forward Arrowhead',
@@ -614,14 +549,14 @@ for i, ang in enumerate(ref_angles):
 
     # Project down to intersect the flat seafloor
     if v_rot[2] > 1e-6:
-        scale = depth / v_rot[2]
+        scale = st.session_state["depth"] / v_rot[2]
         x_rot = v_rot[0] * scale
         y_rot = v_rot[1] * scale
     else:
         x_rot, y_rot = 0, 0
 
     fig.add_trace(go.Scatter3d(
-        x=[0, x_rot], y=[0, y_rot], z=[0, depth],
+        x=[0, x_rot], y=[0, y_rot], z=[0, st.session_state["depth"]],
         mode='lines',
         line=dict(color='gray', width=2),
         opacity=0.3,
@@ -634,7 +569,7 @@ for i, ang in enumerate(ref_angles):
     # Save label coordinates
     lbl_x.append(x_rot)
     lbl_y.append(y_rot)
-    lbl_z.append(depth)
+    lbl_z.append(st.session_state["depth"])
     lbl_text.append(f"{ang}°")
 
     # Add the angle text labels to the seafloor

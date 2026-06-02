@@ -15,7 +15,7 @@ def calculate_directivity(v_geo, R_mech, steer_rad, is_tx):
         weights = st.session_state["rx_weights"]
 
     # Call the pre-compiled Numba function using the effective d_lambda
-    return _numba_array_factor(sin_theta, steer_rad, d_lambda_eff, weights)
+    return _numba_array_factor(sin_theta, steer_rad, st.session_state["d_lambda_eff"], weights)
 
 
 def make_tx_ray(theta_sweep, psi_steer):
@@ -38,9 +38,10 @@ def make_rx_ray(theta_steer, phi_acceptance):
 
 def project_to_flat_bottom(v_ray):
     if v_ray[2] < 1e-6:
-        return np.array([v_ray[0] * 1e5, v_ray[1] * 1e5, depth])
-    scale = depth / v_ray[2]
-    return np.array([v_ray[0] * scale, v_ray[1] * scale, depth])
+        return np.array([v_ray[0] * 1e5, v_ray[1] * 1e5, st.session_state["depth"]])
+    scale = st.session_state["depth"] / v_ray[2]
+    return np.array([v_ray[0] * scale, v_ray[1] * scale, st.session_state["depth"]])
+
 
 def calculate_absorption_fg(frequency_hz, T, S, D, pH, c_sound_user):
     """
@@ -214,10 +215,10 @@ def generate_native_lobe(is_tx, color_scale, name):
     # Dynamically center the grid on the steered beam
     if is_tx:
         # TX array is along x steered in pitch
-        v_center = np.pi / 2 - tx_steer_rad
+        v_center = np.pi / 2 - st.session_state["tx_steer_rad"]
     else:
         # RX array is along Y steered in roll
-        v_center = np.pi / 2 - theta_rad
+        v_center = np.pi / 2 - st.session_state["theta_rad"]
 
     # Both fans sweep 180 degrees downwards
     u = np.linspace(0, np.pi, 150)

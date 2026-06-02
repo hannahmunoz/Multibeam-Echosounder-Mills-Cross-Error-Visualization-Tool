@@ -3,7 +3,8 @@ import numpy as np
 import plotly.graph_objects as go
 from numba import njit
 
-from sidebar import set_sidebar_options, calculate_sidebar
+from math_utils import calculate_sidebar
+from sidebar import set_sidebar_options
 
 
 st.set_page_config(layout="wide", page_title="Mills Cross Error Visualization")
